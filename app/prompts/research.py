@@ -4,7 +4,7 @@ Research analysis prompts
 
 RESEARCH_PROMPT_TEMPLATE = """You are a professional Company Research & Market Intelligence Assistant.
 
-Analyze the provided company and competitor data and create a comprehensive research report.
+Analyze the provided company (company_url) and competitor data and create a comprehensive research report.
 
 Structure your report with these sections:
 

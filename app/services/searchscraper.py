@@ -1,5 +1,6 @@
 """
-SearchScraper Service - FIXED based on working code
+SearchScraper Service - Enhanced with multi-source queries
+Modified: URL-only company name extraction
 """
 import re
 import logging
@@ -12,7 +13,7 @@ from app.services.llm_service import llm_service
 logger = logging.getLogger(__name__)
 
 class SearchScraperService:
-    """SearchScraper wrapper service"""
+    """SearchScraper wrapper service with enhanced data collection"""
     
     def __init__(self):
         """Initialize SearchScraper client"""
@@ -21,10 +22,7 @@ class SearchScraperService:
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def _search_request(self, query: str, num_results: int = 5) -> dict:
-        """
-        Execute SearchScraper query with retry logic.
-        Based on working code - returns immediate results, no polling needed.
-        """
+        """Execute SearchScraper query with retry logic"""
         try:
             logger.info(f"[SearchScraper] Searching: {query}")
             resp = self.client.searchscraper(user_prompt=query, num_results=num_results)
@@ -37,25 +35,40 @@ class SearchScraperService:
             logger.error(f"[SearchScraper] Exception: {e}")
             raise
     
-    def search_competitors(self, company_overview: str) -> str:
+    def search_competitors(self, company_overview: str, company_url: str) -> str:
         """
         Fetch and analyze competitor data.
         
         Args:
             company_overview: Company overview text from SmartCrawler
+            company_url: Original company URL (REQUIRED for extraction)
             
         Returns:
             Structured competitor analysis
         """
         try:
-            # Extract company name from overview
-            company_name = self._extract_company_name(company_overview)
-            logger.info(f"[SearchScraper] Analyzing competitors for: '{company_name}'")
+            # Extract company name from URL ONLY
+            if not company_url:
+                return "❌ Company URL is required for competitor search. Please provide a valid URL."
             
-            # Create targeted queries (matching working code pattern)
+            company_name = self._extract_from_url(company_url)
+            logger.info(f"[SearchScraper] Extracted company name from URL: '{company_name}'")
+            
+            if not company_name or len(company_name) < 2:
+                return f"❌ Unable to extract company name from URL: {company_url}"
+            
+            # ENHANCED: Multiple targeted queries for better results
             queries = [
-                f"{company_name} competitors direct rivals and similar companies",
-                f"{company_name} vs competitors comparison market",
+                f"{company_name} direct competitors alternatives",
+                f"{company_name} vs competitors comparison",
+                f"{company_name} similar companies market",
+                f"top competitors to {company_name}",
+                 f"{company_name} founders CEO leadership team",
+                f"{company_name} funding investors valuation",
+                f"{company_name} revenue business model",
+                f"{company_name} company history founded",
+                f"{company_name} latest news announcements 2024 2025",
+                f"{company_name} market size industry TAM",
             ]
             
             all_results = []
@@ -64,134 +77,265 @@ class SearchScraperService:
             for query in queries:
                 try:
                     raw_resp = self._search_request(query, num_results=5)
-                    
-                    # Extract result from response
                     if raw_resp and raw_resp.get("result"):
                         all_results.append(raw_resp["result"])
-                        logger.info(f"[SearchScraper] ✅ Query successful")
-                    else:
-                        logger.warning(f"[SearchScraper] No result for query")
-                        
                 except Exception as query_error:
-                    logger.warning(f"[SearchScraper] Query failed: {query_error}")
+                    logger.warning(f"[SearchScraper] Query '{query}' failed: {query_error}")
                     continue
             
             if not all_results:
-                return (
-                    "❌ No competitor data found.\n\n"
-                    "**Possible reasons:**\n"
-                    "- Company name unclear from overview\n"
-                    "- No public competitor information available\n\n"
-                    "**Suggestion:** Provide more context or try a different URL."
-                )
+                return "❌ No competitor data found. The company may be very new or have limited online presence."
             
             # Process results
             combined_data = self._combine_search_results(all_results)
             
             # Limit data size
             if len(combined_data) > settings.MAX_SEARCH_DATA_LENGTH:
-                combined_data = combined_data[:settings.MAX_SEARCH_DATA_LENGTH] + "\n\n[Data truncated]"
+                combined_data = combined_data[:settings.MAX_SEARCH_DATA_LENGTH] + "\n\n[Data truncated due to length]"
             
             # Generate analysis
-            return self._generate_competitor_analysis(company_overview, combined_data)
+            return self._generate_competitor_analysis(company_name, company_overview, combined_data)
             
         except Exception as e:
             logger.error(f"[SearchScraper] Failed: {e}", exc_info=True)
-            return (
-                f"❌ Error fetching competitor data: {str(e)}\n\n"
-                "Please try again or check if the service is available."
-            )
+            return f"❌ Error fetching competitor data: {str(e)}\n\nPlease try again."
     
-    def _extract_company_name(self, overview: str) -> str:
-        """Extract company name from overview (matching working code)"""
-        # Take first few words as likely company name
-        overview_lines = overview.split('\n')
-        first_line = overview_lines[0] if overview_lines else overview
+    def search_company_intelligence(self, company_name: str, company_url: str = None) -> str:
+        """
+        NEW: Search for additional company intelligence not found on website.
+        This supplements SmartCrawler data with external sources.
         
-        # Take first 3-5 words
-        company_name_match = first_line.split()[:5]
-        company_name = " ".join(company_name_match)
+        Args:
+            company_name: Company name (extracted from URL if provided)
+            company_url: Company URL (used for extraction if provided)
+            
+        Returns:
+            Additional company intelligence (founders, funding, news, etc.)
+        """
+        try:
+            # If URL provided, extract company name from it
+            if company_url:
+                company_name = self._extract_from_url(company_url)
+                logger.info(f"[SearchScraper] Using URL-extracted name: {company_name}")
+            
+            if not company_name:
+                return "❌ Company name or URL required for intelligence search."
+            
+            logger.info(f"[SearchScraper] Searching intelligence for: {company_name}")
+            
+            # ENHANCED: Specific queries for missing information
+            intelligence_queries = [
+                f"{company_name} founders CEO leadership team",
+                f"{company_name} funding investors valuation",
+                f"{company_name} revenue business model",
+                f"{company_name} company history founded",
+                f"{company_name} latest news announcements 2024 2025",
+                f"{company_name} market size industry TAM",
+            ]
+            
+            all_intelligence = []
+            
+            for query in intelligence_queries:
+                try:
+                    raw_resp = self._search_request(query, num_results=3)
+                    if raw_resp and raw_resp.get("result"):
+                        all_intelligence.append({
+                            "query": query,
+                            "data": raw_resp["result"]
+                        })
+                except Exception as query_error:
+                    logger.warning(f"[SearchScraper] Intelligence query failed: {query_error}")
+                    continue
+            
+            if not all_intelligence:
+                return "❌ No additional intelligence found."
+            
+            # Format intelligence data
+            formatted_intelligence = self._format_intelligence(all_intelligence)
+            
+            return formatted_intelligence
+            
+        except Exception as e:
+            logger.error(f"[SearchScraper] Intelligence search failed: {e}", exc_info=True)
+            return f"❌ Error fetching company intelligence: {str(e)}"
+    
+    def _format_intelligence(self, intelligence_data: list) -> str:
+        """Format intelligence data into structured sections"""
+        sections = {}
         
-        # Remove common words
-        company_name = re.sub(
-            r'\b(the|a|an|is|are|was|were|company|inc|ltd|llc)\b', 
-            '', 
-            company_name, 
-            flags=re.IGNORECASE
-        )
-        return company_name.strip()
+        for item in intelligence_data:
+            query = item["query"]
+            data = item["data"]
+            
+            # Categorize by query type
+            if "founder" in query.lower() or "ceo" in query.lower() or "leadership" in query.lower():
+                sections.setdefault("Leadership & Founders", []).append(data)
+            elif "funding" in query.lower() or "investor" in query.lower():
+                sections.setdefault("Funding & Investors", []).append(data)
+            elif "revenue" in query.lower() or "business model" in query.lower():
+                sections.setdefault("Revenue & Business Model", []).append(data)
+            elif "history" in query.lower() or "founded" in query.lower():
+                sections.setdefault("Company History", []).append(data)
+            elif "news" in query.lower() or "announcement" in query.lower():
+                sections.setdefault("Recent News", []).append(data)
+            elif "market" in query.lower() or "tam" in query.lower():
+                sections.setdefault("Market Intelligence", []).append(data)
+        
+        # Build formatted output
+        output = "# 🔍 External Intelligence Data\n\n"
+        
+        for section, data_list in sections.items():
+            output += f"## {section}\n\n"
+            for data in data_list:
+                output += f"{self._stringify_data(data)}\n\n---\n\n"
+        
+        return output
+    
+    def _stringify_data(self, data) -> str:
+        """Convert data to readable string"""
+        if isinstance(data, str):
+            return data
+        elif isinstance(data, dict):
+            return json.dumps(data, indent=2, ensure_ascii=False)
+        else:
+            return str(data)
+    
+    def _extract_from_url(self, url: str) -> str:
+        """
+        Extract company name from URL domain.
+        MODIFIED: Returns full domain (e.g., 'github.com', 'google.com') for common platforms.
+        """
+        try:
+            # Extract domain from URL
+            domain_match = re.search(r'(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,})', url)
+            if not domain_match:
+                # Try simpler pattern for just domain.tld
+                domain_match = re.search(r'(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})', url)
+            
+            if domain_match:
+                full_domain = domain_match.group(1)
+                logger.info(f"[URL Extraction] Full domain: '{full_domain}'")
+                
+                # List of common platforms where we use the full domain
+                common_platforms = [
+                    'github.com', 'google.com', 'facebook.com', 'twitter.com', 
+                    'linkedin.com', 'youtube.com', 'instagram.com', 'reddit.com',
+                    'amazon.com', 'microsoft.com', 'apple.com', 'meta.com',
+                    'tiktok.com', 'snapchat.com', 'pinterest.com', 'netflix.com'
+                ]
+                
+                # Check if it's a common platform
+                for platform in common_platforms:
+                    if full_domain.lower().endswith(platform.lower()):
+                        logger.info(f"[URL Extraction] Detected common platform, using full domain: '{full_domain}'")
+                        return full_domain
+                
+                # For other domains, extract just the main part
+                # e.g., "example.co.uk" -> "example", "mycompany.com" -> "mycompany"
+                main_domain = full_domain.split('.')[0]
+                formatted_name = self._format_domain_name(main_domain)
+                logger.info(f"[URL Extraction] Using formatted name: '{formatted_name}'")
+                return formatted_name
+            
+            logger.warning(f"[URL Extraction] Could not extract domain from: {url}")
+            return ""
+            
+        except Exception as e:
+            logger.error(f"URL extraction error: {e}")
+            return ""
+    
+    def _format_domain_name(self, domain: str) -> str:
+        """Format domain name into company name"""
+        # Known brand capitalizations
+        known_formats = {
+            'github': 'GitHub', 'gitlab': 'GitLab', 'linkedin': 'LinkedIn',
+            'youtube': 'YouTube', 'airbnb': 'Airbnb', 'shopify': 'Shopify',
+            'stripe': 'Stripe', 'mongodb': 'MongoDB', 'postgresql': 'PostgreSQL',
+            'facebook': 'Facebook', 'google': 'Google', 'microsoft': 'Microsoft',
+            'apple': 'Apple', 'amazon': 'Amazon', 'netflix': 'Netflix',
+            'twitter': 'Twitter', 'instagram': 'Instagram', 'tiktok': 'TikTok',
+            'snapchat': 'Snapchat', 'pinterest': 'Pinterest', 'reddit': 'Reddit'
+        }
+        
+        domain_lower = domain.lower()
+        if domain_lower in known_formats:
+            return known_formats[domain_lower]
+        
+        # Format generic domains: replace hyphens/underscores with spaces, title case
+        return domain.replace('-', ' ').replace('_', ' ').title()
     
     def _combine_search_results(self, results: list) -> str:
-        """Combine search results into structured format (matching working code)"""
-        combined_results = []
-        
+        """Combine search results"""
+        combined = []
         for result in results:
             if isinstance(result, dict):
-                # Extract companies information if available
                 if "companies" in result and result["companies"]:
-                    companies_text = []
                     for company in result["companies"]:
                         if isinstance(company, dict):
                             name = company.get("name", "Unknown")
                             desc = company.get("description", "No description")
-                            companies_text.append(f"**{name}**: {desc}")
+                            combined.append(f"**{name}**: {desc}")
                         else:
-                            companies_text.append(str(company))
-                    combined_results.append("\n".join(companies_text))
+                            combined.append(str(company))
                 else:
-                    # Fallback: convert entire dict to string
-                    combined_results.append(str(result))
+                    combined.append(str(result))
             else:
-                combined_results.append(str(result))
+                combined.append(str(result))
         
-        return "\n\n---\n\n".join(combined_results)
+        return "\n\n---\n\n".join(combined)
     
-    def _generate_competitor_analysis(self, company_overview: str, search_data: str) -> str:
-        """Generate structured competitor analysis using LLM (enhanced from working code)"""
-        prompt = (
-            "You are an expert competitive intelligence analyst with deep experience in market research.\n\n"
-            "MISSION: Analyze the provided search data and identify ONLY the most direct, relevant competitors.\n"
-            "Focus on companies that directly compete for the same customers with similar value propositions.\n\n"
-            "STRICT OUTPUT FORMAT:\n\n"
-            "# 🏢 Direct Competitors Analysis\n\n"
-            "## [Company Name 1]\n"
-            "**🎯 Core Focus:** [What they do - concise]\n"
-            "**💰 Business Model:** [Revenue model]\n"
-            "**📊 Market Position:** [Leader/Challenger/Niche]\n"
-            "**🏢 Company Size:** [Stage + rough employee count]\n"
-            "**💵 Funding/Revenue:** [Latest financial data if available]\n"
-            "**🎯 Target Market:** [Primary customer segments]\n"
-            "**⚡ Key Differentiator:** [Main competitive advantage]\n"
-            "**🌍 Geographic Reach:** [Primary markets]\n\n"
-            "CRITICAL REQUIREMENTS:\n"
-            "- Include ONLY 4-6 most relevant direct competitors\n"
-            "- Each bullet point: maximum 15 words\n"
-            "- Skip indirect competitors or loosely related companies\n"
-            "- Use 'Not available' only if truly no data exists\n"
-            "- Prioritize companies that target similar customers with competing solutions\n"
-            "- Focus on actionable competitive intelligence\n\n"
-            f"COMPANY BEING ANALYZED:\n{company_overview[:500]}\n\n"
-            f"SEARCH RESULTS TO ANALYZE:\n{search_data}"
-        )
+    def _generate_competitor_analysis(self, company_name: str, company_overview: str, search_data: str) -> str:
+        """Generate structured competitor analysis"""
+        prompt = f"""You are an expert competitive intelligence analyst.
+
+COMPANY ANALYZED: {company_name}
+
+MISSION: Analyze search data and identify 5-7 most direct, relevant competitors with detailed information.
+
+OUTPUT FORMAT:
+
+# 🏢 Competitive Intelligence Report
+
+## [Competitor 1 Name]
+**🎯 Core Business:** [What they do - 1 sentence]
+**💰 Business Model:** [How they make money]
+**📊 Market Position:** [Leader/Challenger/Niche Player]
+**🏢 Company Size:** [Employee count/funding stage]
+**💵 Funding/Revenue:** [Latest data with sources]
+**🎯 Target Market:** [Primary customer segments]
+**⚡ Key Differentiator:** [Main competitive advantage vs {company_name}]
+**🌍 Geographic Reach:** [Markets served]
+**📈 Recent News:** [Latest developments, if available]
+
+REQUIREMENTS:
+- Include 5-7 most relevant direct competitors
+- Prioritize competitors in the same market/industry
+- Keep each bullet point under 20 words
+- Include specific numbers (funding, revenue, users) when available
+- Skip indirect/tangential competitors
+- If data not available, write "Not disclosed"
+- Compare each competitor to {company_name}
+
+COMPANY CONTEXT:
+{company_overview[:500]}
+
+SEARCH DATA:
+{search_data}
+
+Provide detailed competitor analysis:"""
         
         result = llm_service.invoke(prompt)
         
-        # Ensure result is string (matching working code pattern)
         if isinstance(result, list):
             result = "\n".join(str(item) for item in result)
         else:
             result = str(result) if result else ""
         
-        # Enhanced validation
         if not result or len(result) < 100:
-            return (
-                "❌ Unable to extract meaningful competitor data from search results.\n\n"
-                "**Suggestion:** Try with a more specific company name or URL."
-            )
+            return "❌ Unable to extract meaningful competitor data.\n\n**Suggestion:** Try searching manually or provide more context."
         
-        # Clean up formatting
-        if "# 🏢 Direct Competitors Analysis" not in result:
-            result = "# 🏢 Direct Competitors Analysis\n\n" + result
+        if "# 🏢" not in result:
+            result = "# 🏢 Competitive Intelligence Report\n\n" + result
         
         return result
 

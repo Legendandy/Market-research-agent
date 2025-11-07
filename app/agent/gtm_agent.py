@@ -1,5 +1,6 @@
 """
 Smart GTM Agent - Main agent implementation
+FIXED: Pass company_url to SearchScraper
 """
 import logging
 import asyncio
@@ -191,12 +192,13 @@ class SmartGTMAgent(AbstractAgent):
                     "⏱️ Estimated time: 1-2 minutes\n"
                 )
                 
-                # Run SearchScraper with keepalive
+                # ✅ FIXED: Pass BOTH scrawler_result AND company_url to SearchScraper
                 search_result = await self._run_with_keepalive(
                     searchscraper_service.search_competitors,
                     response_handler,
                     "SEARCHSCRAPER",
-                    scrawler_result
+                    scrawler_result,  # company_overview
+                    company_url       # ✅ NOW PASSING THE URL!
                 )
                 
                 await response_handler.emit_json(
