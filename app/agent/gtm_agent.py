@@ -1,10 +1,11 @@
 """
 Smart GTM Agent - Main agent implementation with Natural Language Query Support
-ENHANCED: Natural language query parsing + user-friendly error messages
+FIXED: Proper async/executor handling to prevent hanging between requests
 """
 import logging
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from sentient_agent_framework import AbstractAgent, Session, Query, ResponseHandler
 from app.config import settings
 from app.core import normalize_url, is_valid_url, extract_company_name, rate_limiter, cache_manager
@@ -30,20 +31,40 @@ class SmartGTMAgent(AbstractAgent):
     def __init__(self, name: str = "Smart GTM Agent"):
         super().__init__(name)
         
-        # Create thread pool executor
-        self.executor = ThreadPoolExecutor(max_workers=3)
+        # Don't create a shared executor - we'll create per-request executors
+        # to prevent thread leaks
+        self.executor = None
         
-        # Initialize handlers
-        self.handlers = AnalysisHandlers(self.executor)
+        # Don't initialize handlers yet - we'll create them per request
+        # to avoid sharing executor state
+        self.handlers = None
         
         logger.info(f"✅ {name} initialized successfully with natural language support")
     
-    async def _run_with_keepalive(self, func, response_handler, status_key, *args):
-        """Run a blocking function with periodic keepalive messages"""
+    async def _run_with_keepalive(self, executor, func, response_handler, status_key, timeout_seconds, *args):
+        """
+        Run a blocking function with periodic keepalive messages and timeout.
+        
+        Args:
+            executor: ThreadPoolExecutor to use for this request
+            func: Blocking function to run
+            response_handler: Response handler for keepalive messages
+            status_key: Key for status messages
+            timeout_seconds: Maximum seconds to wait
+            *args: Arguments to pass to func
+        """
         loop = asyncio.get_event_loop()
         
-        # Create the main task
-        task = loop.run_in_executor(self.executor, func, *args)
+        # Debug logging
+        logger.info(f"🧵 [{status_key}] Active threads before executor call: {threading.active_count()}")
+        
+        # Create the main task with timeout
+        task = asyncio.create_task(
+            asyncio.wait_for(
+                loop.run_in_executor(executor, func, *args),
+                timeout=timeout_seconds
+            )
+        )
         
         # Create keepalive task
         async def send_keepalive():
@@ -52,9 +73,11 @@ class SmartGTMAgent(AbstractAgent):
                 await asyncio.sleep(settings.KEEPALIVE_INTERVAL)
                 if not task.done():
                     counter += 1
+                    elapsed = counter * settings.KEEPALIVE_INTERVAL
+                    logger.info(f"🧵 [{status_key}] Keepalive {counter}: {threading.active_count()} threads active")
                     await response_handler.emit_text_block(
                         f"{status_key}_KEEPALIVE_{counter}",
-                        f"⏳ Still processing {status_key.lower()}... ({counter * settings.KEEPALIVE_INTERVAL}s elapsed)\n"
+                        f"⏳ Still processing {status_key.lower()}... ({elapsed}s elapsed)\n"
                     )
         
         # Run both tasks concurrently
@@ -63,10 +86,18 @@ class SmartGTMAgent(AbstractAgent):
         try:
             result = await task
             keepalive_task.cancel()
+            logger.info(f"🧵 [{status_key}] Active threads after executor call: {threading.active_count()}")
             return result
+        except asyncio.TimeoutError:
+            keepalive_task.cancel()
+            logger.error(f"{status_key} operation timed out after {timeout_seconds}s")
+            logger.error(f"🧵 [{status_key}] Active threads at timeout: {threading.active_count()}")
+            raise TimeoutError(f"{status_key} operation exceeded timeout")
         except Exception as e:
             keepalive_task.cancel()
-            raise e
+            logger.error(f"{status_key} operation failed: {e}")
+            logger.error(f"🧵 [{status_key}] Active threads at error: {threading.active_count()}")
+            raise
     
     async def assist(self, session: Session, query: Query, response_handler: ResponseHandler):
         """
@@ -87,6 +118,15 @@ class SmartGTMAgent(AbstractAgent):
            - "https://example.com"
            - "example.com"
         """
+        # Create a fresh executor for this request to prevent thread leaks
+        request_executor = ThreadPoolExecutor(
+            max_workers=3,  # Increased to 3 for crawler, scraper, and LLM
+            thread_name_prefix=f"gtm_req_{id(query)}_"
+        )
+        
+        # Create handlers for this request with its own executor
+        request_handlers = AnalysisHandlers(request_executor)
+        
         try:
             # Parse query using natural language parser
             raw_url, feature, error_message = parse_query(query.prompt)
@@ -136,6 +176,7 @@ class SmartGTMAgent(AbstractAgent):
                 return
             
             logger.info(f"✅ Parsed query - URL: {company_url}, Type: {feature}, {rate_msg}")
+            logger.info(f"🧵 Initial active threads: {threading.active_count()}")
             
             # Check cache
             cached_result = cache_manager.get(company_url, feature)
@@ -154,9 +195,6 @@ class SmartGTMAgent(AbstractAgent):
                     await asyncio.sleep(0.01)
                 
                 await final_response_stream.complete()
-                
-        
-                
                 await response_handler.complete()
                 return
             
@@ -184,7 +222,7 @@ class SmartGTMAgent(AbstractAgent):
                 "I'll analyze the company website and gather competitive intelligence...\n"
             )
             
-            # Run data collection
+            # Run data collection with timeouts
             await response_handler.emit_text_block(
                 "DATA_COLLECTION",
                 "🕷️ **Step 1/3:** Crawling company website for data extraction...\n"
@@ -192,11 +230,13 @@ class SmartGTMAgent(AbstractAgent):
             )
             
             try:
-                # Run SmartCrawler with keepalive
+                # Run SmartCrawler with keepalive and timeout (5 minutes max)
                 scrawler_result = await self._run_with_keepalive(
+                    request_executor,
                     smartcrawler_service.crawl,
                     response_handler,
                     "SMARTCRAWLER",
+                    300,  # 5 minute timeout
                     company_url
                 )
                 
@@ -211,11 +251,13 @@ class SmartGTMAgent(AbstractAgent):
                     "⏱️ *This may take 1-2 minutes*\n"
                 )
                 
-                # Run SearchScraper with both parameters
+                # Run SearchScraper with keepalive and timeout (3 minutes max)
                 search_result = await self._run_with_keepalive(
+                    request_executor,
                     searchscraper_service.search_competitors,
                     response_handler,
                     "SEARCHSCRAPER",
+                    180,  # 3 minute timeout
                     scrawler_result,
                     company_url
                 )
@@ -242,17 +284,17 @@ class SmartGTMAgent(AbstractAgent):
                 
                 # Process with appropriate analysis
                 if feature == "research":
-                    async for chunk in self.handlers.run_research_analysis(combined_data):
+                    async for chunk in request_handlers.run_research_analysis(combined_data):
                         await final_response_stream.emit_chunk(chunk)
                         full_analysis.append(chunk)
                         
                 elif feature == "go-to-market":
-                    async for chunk in self.handlers.run_gtm_analysis(combined_data):
+                    async for chunk in request_handlers.run_gtm_analysis(combined_data):
                         await final_response_stream.emit_chunk(chunk)
                         full_analysis.append(chunk)
                         
                 elif feature == "channel":
-                    async for chunk in self.handlers.run_channel_analysis(combined_data):
+                    async for chunk in request_handlers.run_channel_analysis(combined_data):
                         await final_response_stream.emit_chunk(chunk)
                         full_analysis.append(chunk)
                 
@@ -271,7 +313,20 @@ class SmartGTMAgent(AbstractAgent):
                     }
                 )
                 
-                
+            except TimeoutError as e:
+                logger.error(f"Timeout error: {e}")
+                await response_handler.emit_text_block(
+                    "TIMEOUT_ERROR",
+                    f"⏱️ **Operation Timed Out**\n\n"
+                    f"{str(e)}\n\n"
+                    "**This can happen when:**\n"
+                    "• The website is very large or slow to respond\n"
+                    "• The website blocks automated crawling\n"
+                    "• Network issues\n\n"
+                    "**Please try again or try a different website.**"
+                )
+                await response_handler.complete()
+                return
                 
             except Exception as e:
                 logger.error(f"Error during processing: {e}", exc_info=True)
@@ -279,6 +334,7 @@ class SmartGTMAgent(AbstractAgent):
             
             await response_handler.complete()
             logger.info(f"✅ Analysis completed for {company_url}")
+            logger.info(f"🧵 Final active threads: {threading.active_count()}")
             
         except Exception as e:
             logger.error(f"Error in assist method: {e}", exc_info=True)
@@ -289,8 +345,13 @@ class SmartGTMAgent(AbstractAgent):
                 "**Please try again or contact support if the issue persists.**"
             )
             await response_handler.complete()
+        
+        finally:
+            # CRITICAL: Always cleanup the executor, even if errors occur
+            logger.info("🧹 Cleaning up request executor...")
+            request_executor.shutdown(wait=True, cancel_futures=True)
+            logger.info(f"✅ Executor cleaned up. Final thread count: {threading.active_count()}")
     
-    def __del__(self):
-        """Cleanup executor on agent destruction"""
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=False)
+    def cleanup(self):
+        """Explicit cleanup method (executor is per-request now)"""
+        logger.info("✅ SmartGTMAgent cleanup called (no global executor to clean)")

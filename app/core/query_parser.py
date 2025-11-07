@@ -50,7 +50,7 @@ class QueryParser:
             return None, None, cls._generate_help_message("no_url")
         
         if not analysis_type:
-            return url, None, cls._generate_help_message("no_type")
+            return url, 'research', None
         
         return url, analysis_type, None
     
