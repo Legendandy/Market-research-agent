@@ -140,16 +140,7 @@ class SmartGTMAgent(AbstractAgent):
                 
                 await final_response_stream.complete()
                 
-                await response_handler.emit_json(
-                    "ANALYSIS_METADATA",
-                    {
-                        "company_url": company_url,
-                        "company_name": extract_company_name(company_url),
-                        "feature": feature,
-                        "status": "completed",
-                        "cached": True
-                    }
-                )
+            
                 
                 await response_handler.complete()
                 return
@@ -252,17 +243,7 @@ class SmartGTMAgent(AbstractAgent):
                     }
                 )
                 
-                # Completion metadata
-                await response_handler.emit_json(
-                    "ANALYSIS_METADATA",
-                    {
-                        "company_url": company_url,
-                        "company_name": company_name,
-                        "feature": feature,
-                        "status": "completed",
-                        "cached": False
-                    }
-                )
+        
                 
             except Exception as e:
                 logger.error(f"Error during processing: {e}", exc_info=True)

@@ -4,7 +4,7 @@ Go-To-Market analysis prompts
 
 GTM_PROMPT_TEMPLATE = """You are a professional Go-To-Market (GTM) Strategist.
 
-Based on the provided company and competitor data, create a comprehensive GTM strategy.
+Based on the provided company (company_url) and competitor data, create a comprehensive GTM strategy.
 
 Your GTM Playbook must include these sections:
 

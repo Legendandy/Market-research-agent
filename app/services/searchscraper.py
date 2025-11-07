@@ -59,16 +59,11 @@ class SearchScraperService:
             
             # ENHANCED: Multiple targeted queries for better results
             queries = [
-                f"{company_name} direct competitors alternatives",
-                f"{company_name} vs competitors comparison",
-                f"{company_name} similar companies market",
-                f"top competitors to {company_name}",
-                 f"{company_name} founders CEO leadership team",
-                f"{company_name} funding investors valuation",
-                f"{company_name} revenue business model",
-                f"{company_name} company history founded",
-                f"{company_name} latest news announcements 2024 2025",
-                f"{company_name} market size industry TAM",
+                f"{company_name} competitors direct rivals",
+                f"{company_name} vs alternative similar companies",
+                 f"{company_name} founders CEO leadership team and funding investors valuation ",
+                f"{company_name} revenue business model, market size industry TAM, SAM, and SOM",
+                f"{company_name} company history and founders",
             ]
             
             all_results = []

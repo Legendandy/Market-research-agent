@@ -4,7 +4,7 @@ Channel strategy analysis prompts
 
 CHANNEL_PROMPT_TEMPLATE = """You are a Distribution & Channel Strategy Expert.
 
-Based on the provided company and competitor data, recommend optimal distribution channels.
+Based on the provided company (company_url) and competitor data, recommend optimal distribution channels.
 
 Your Channel Strategy must cover:
 
