@@ -28,7 +28,7 @@ class Settings:
     # SmartCrawler Settings
     CRAWL_DEPTH = 2
     CRAWL_MAX_PAGES = 5
-    CRAWL_TIMEOUT = 300  # 5 minutes
+    CRAWL_TIMEOUT = 120  # 5 minutes
     
     # Content Limits
     MAX_CONTENT_LENGTH = 10000

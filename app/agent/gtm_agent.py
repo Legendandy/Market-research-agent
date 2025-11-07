@@ -1,6 +1,6 @@
 """
-Smart GTM Agent - Main agent implementation
-FIXED: Pass company_url to SearchScraper
+Smart GTM Agent - Main agent implementation with Natural Language Query Support
+ENHANCED: Natural language query parsing + user-friendly error messages
 """
 import logging
 import asyncio
@@ -10,6 +10,7 @@ from app.config import settings
 from app.core import normalize_url, is_valid_url, extract_company_name, rate_limiter, cache_manager
 from app.services import smartcrawler_service, searchscraper_service
 from app.agent.handlers import AnalysisHandlers
+from app.core.query_parser import parse_query
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,11 @@ class SmartGTMAgent(AbstractAgent):
     
     Compliant with Sentient Agent Framework for lightning-fast market 
     intelligence & GTM execution.
+    
+    NOW SUPPORTS:
+    - Natural language queries: "Give me channel analysis for example.com"
+    - Legacy format: "example.com | channel"
+    - Conversational: "I need go-to-market strategy for github.com"
     """
     
     def __init__(self, name: str = "Smart GTM Agent"):
@@ -30,7 +36,7 @@ class SmartGTMAgent(AbstractAgent):
         # Initialize handlers
         self.handlers = AnalysisHandlers(self.executor)
         
-        logger.info(f"✅ {name} initialized successfully")
+        logger.info(f"✅ {name} initialized successfully with natural language support")
     
     async def _run_with_keepalive(self, func, response_handler, status_key, *args):
         """Run a blocking function with periodic keepalive messages"""
@@ -64,70 +70,79 @@ class SmartGTMAgent(AbstractAgent):
     
     async def assist(self, session: Session, query: Query, response_handler: ResponseHandler):
         """
-        Main entry point for the GTM agent.
+        Main entry point for the GTM agent with natural language support.
         
-        Expected query format:
-        - "https://example.com" (defaults to research)
-        - "https://example.com | research"
-        - "www.example.com | go-to-market"
-        - "example.com | channel"
+        Supported query formats:
+        1. Natural Language:
+           - "Give me a channel analysis for example.com"
+           - "I need go-to-market strategy for github.com"
+           - "Research shopify.com for me"
+        
+        2. Legacy Format:
+           - "example.com | research"
+           - "https://example.com | go-to-market"
+           - "www.example.com | channel"
+        
+        3. URL Only (defaults to research):
+           - "https://example.com"
+           - "example.com"
         """
         try:
-            # Parse query
-            prompt_parts = query.prompt.strip().split('|')
-            raw_url = prompt_parts[0].strip()
+            # Parse query using natural language parser
+            raw_url, feature, error_message = parse_query(query.prompt)
+            
+            # If parsing failed, emit helpful error message
+            if error_message:
+                await response_handler.emit_text_block(
+                    "PARSING_ERROR",
+                    error_message
+                )
+                await response_handler.complete()
+                return
             
             # Normalize and validate URL
             company_url = normalize_url(raw_url)
             
             if not company_url or not is_valid_url(company_url):
-                await response_handler.emit_error(
-                    error_code=400,
-                    error_data={
-                        "message": f"Invalid URL: '{raw_url}'. Please provide a valid URL like: https://example.com, www.example.com, or example.com"
-                    }
+                await response_handler.emit_text_block(
+                    "URL_VALIDATION_ERROR",
+                    f"❌ **Invalid URL format: '{raw_url}'**\n\n"
+                    "**Please provide a valid URL:**\n"
+                    "✅ https://example.com\n"
+                    "✅ www.example.com\n"
+                    "✅ example.com\n\n"
+                    "**Example requests:**\n"
+                    "• \"Give me channel analysis for stripe.com\"\n"
+                    "• \"I need go-to-market strategy for https://github.com\"\n"
+                    "• \"Research shopify.com\""
                 )
                 await response_handler.complete()
                 return
             
-            # Extract feature
-            if len(prompt_parts) > 1:
-                feature = prompt_parts[1].strip().lower()
-            else:
-                feature = getattr(query, 'feature', 'research').lower()
-            
-            # Validate feature
-            if feature not in ['research', 'go-to-market', 'channel']:
-                await response_handler.emit_error(
-                    error_code=400,
-                    error_data={
-                        "message": f"Invalid feature '{feature}'. Must be one of: research, go-to-market, channel"
-                    }
-                )
-                await response_handler.complete()
-                return
-            
-            # Extract user ID for rate limiting (from session or use a default)
+            # Extract user ID for rate limiting
             user_id = getattr(session, 'user_id', None) or getattr(query, 'user_id', 'default_user')
             
             # Check rate limit
             allowed, rate_msg = rate_limiter.check_rate_limit(user_id)
             if not allowed:
-                await response_handler.emit_error(
-                    error_code=429,
-                    error_data={"message": f"⚠️ {rate_msg}. Please wait before making more requests."}
+                await response_handler.emit_text_block(
+                    "RATE_LIMIT_ERROR",
+                    f"⚠️ **Rate Limit Exceeded**\n\n"
+                    f"{rate_msg}\n\n"
+                    f"**Please wait a moment before making more requests.**\n"
+                    f"This helps ensure optimal performance for all users."
                 )
                 await response_handler.complete()
                 return
             
-            logger.info(f"Rate limit check: {rate_msg}")
+            logger.info(f"✅ Parsed query - URL: {company_url}, Type: {feature}, {rate_msg}")
             
             # Check cache
             cached_result = cache_manager.get(company_url, feature)
             if cached_result:
                 await response_handler.emit_text_block(
                     "CACHE_HIT",
-                    "✅ Found cached result! Returning stored analysis...\n\n"
+                    "✅ **Found cached result!** Returning stored analysis...\n\n"
                 )
                 
                 # Stream cached result
@@ -140,7 +155,7 @@ class SmartGTMAgent(AbstractAgent):
                 
                 await final_response_stream.complete()
                 
-            
+        
                 
                 await response_handler.complete()
                 return
@@ -148,19 +163,32 @@ class SmartGTMAgent(AbstractAgent):
             # Extract company name
             company_name = extract_company_name(company_url)
             
-            # Start fresh analysis
+            # Start fresh analysis with user-friendly messages
+            feature_emoji = {
+                'research': '🔍',
+                'go-to-market': '🚀',
+                'channel': '📢'
+            }
+            
+            feature_names = {
+                'research': 'Market Research',
+                'go-to-market': 'Go-To-Market Strategy',
+                'channel': 'Channel Strategy'
+            }
+            
             await response_handler.emit_text_block(
                 "ANALYSIS_START",
-                f"🚀 Starting {feature.upper()} analysis for {company_name}...\n\n"
-                f"📍 URL: {company_url}\n"
-                "⏳ This process may take 2-5 minutes. Please wait...\n"
+                f"{feature_emoji.get(feature, '🚀')} **Starting {feature_names.get(feature, feature.upper())} for {company_name}**\n\n"
+                f"📍 **Website:** {company_url}\n"
+                f"⏱️ **Estimated time:** 2-5 minutes\n\n"
+                "I'll analyze the company website and gather competitive intelligence...\n"
             )
             
             # Run data collection
             await response_handler.emit_text_block(
                 "DATA_COLLECTION",
-                "🕷️ Step 1/3: Running SmartCrawler for company data extraction...\n"
-                "⏱️ Estimated time: 2-3 minutes\n"
+                "🕷️ **Step 1/3:** Crawling company website for data extraction...\n"
+                "⏱️ *This may take 2-3 minutes*\n"
             )
             
             try:
@@ -179,17 +207,17 @@ class SmartGTMAgent(AbstractAgent):
                 
                 await response_handler.emit_text_block(
                     "COMPETITOR_SEARCH",
-                    "🔍 Step 2/3: Running SearchScraper for competitor analysis...\n"
-                    "⏱️ Estimated time: 1-2 minutes\n"
+                    "🔍 **Step 2/3:** Searching for competitor intelligence...\n"
+                    "⏱️ *This may take 1-2 minutes*\n"
                 )
                 
-                # ✅ FIXED: Pass BOTH scrawler_result AND company_url to SearchScraper
+                # Run SearchScraper with both parameters
                 search_result = await self._run_with_keepalive(
                     searchscraper_service.search_competitors,
                     response_handler,
                     "SEARCHSCRAPER",
-                    scrawler_result,  # company_overview
-                    company_url       # ✅ NOW PASSING THE URL!
+                    scrawler_result,
+                    company_url
                 )
                 
                 await response_handler.emit_json(
@@ -203,7 +231,7 @@ class SmartGTMAgent(AbstractAgent):
                 # Process based on selected feature
                 await response_handler.emit_text_block(
                     "AGENT_PROCESSING",
-                    f"🤖 Step 3/3: Running {feature.upper()} analysis...\n"
+                    f"🤖 **Step 3/3:** Generating {feature_names.get(feature, feature)} analysis...\n"
                 )
                 
                 # Create text stream for final response
@@ -243,7 +271,7 @@ class SmartGTMAgent(AbstractAgent):
                     }
                 )
                 
-        
+                
                 
             except Exception as e:
                 logger.error(f"Error during processing: {e}", exc_info=True)
@@ -254,9 +282,11 @@ class SmartGTMAgent(AbstractAgent):
             
         except Exception as e:
             logger.error(f"Error in assist method: {e}", exc_info=True)
-            await response_handler.emit_error(
-                error_code=500,
-                error_data={"message": f"An error occurred: {str(e)}"}
+            await response_handler.emit_text_block(
+                "SYSTEM_ERROR",
+                f"❌ **An unexpected error occurred:**\n\n"
+                f"```\n{str(e)}\n```\n\n"
+                "**Please try again or contact support if the issue persists.**"
             )
             await response_handler.complete()
     
