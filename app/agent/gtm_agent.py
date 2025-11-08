@@ -249,7 +249,7 @@ class SmartGTMAgent(AbstractAgent):
                     searchscraper_service.search_competitors,
                     response_handler,
                     "SEARCHSCRAPER",
-                    180,  # 3 minute timeout
+                    700,  # 3 minute timeout
                     scrawler_result,
                     company_url
                 )
