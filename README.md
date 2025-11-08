@@ -19,7 +19,7 @@
 
 - [Overview](#-overview)
 - [Features](#-features)
-- [Architecture](#-architecture)
+- [Architecture](#-Architecture)
 - [Technology Stack](#-technology-stack)
 - [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
