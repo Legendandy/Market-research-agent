@@ -310,8 +310,9 @@ brew install redis
 brew services start redis
 
 # Ubuntu/Debian
-sudo apt-get install redis-server
-sudo systemctl start redis
+sudo apt update
+sudo apt install -y redis
+redis-server --daemonize yes
 
 ```
 
