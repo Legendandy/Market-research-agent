@@ -19,8 +19,8 @@
 
 - [Overview](#-overview)
 - [Features](#-features)
-- [Architecture](#architecture)
-- [Technology Stack](#-technology-stack)
+- [Architecture](#-architecture-1)
+- [Technology Stack](#-technology-stack-1)
 - [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
