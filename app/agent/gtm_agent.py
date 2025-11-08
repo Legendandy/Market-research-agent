@@ -55,9 +55,6 @@ class SmartGTMAgent(AbstractAgent):
         """
         loop = asyncio.get_event_loop()
         
-        # Debug logging
-        logger.info(f"🧵 [{status_key}] Active threads before executor call: {threading.active_count()}")
-        
         # Create the main task with timeout
         task = asyncio.create_task(
             asyncio.wait_for(
@@ -74,7 +71,6 @@ class SmartGTMAgent(AbstractAgent):
                 if not task.done():
                     counter += 1
                     elapsed = counter * settings.KEEPALIVE_INTERVAL
-                    logger.info(f"🧵 [{status_key}] Keepalive {counter}: {threading.active_count()} threads active")
                     await response_handler.emit_text_block(
                         f"{status_key}_KEEPALIVE_{counter}",
                         f"⏳ Still processing {status_key.lower()}... ({elapsed}s elapsed)\n"
@@ -86,17 +82,14 @@ class SmartGTMAgent(AbstractAgent):
         try:
             result = await task
             keepalive_task.cancel()
-            logger.info(f"🧵 [{status_key}] Active threads after executor call: {threading.active_count()}")
             return result
         except asyncio.TimeoutError:
             keepalive_task.cancel()
             logger.error(f"{status_key} operation timed out after {timeout_seconds}s")
-            logger.error(f"🧵 [{status_key}] Active threads at timeout: {threading.active_count()}")
             raise TimeoutError(f"{status_key} operation exceeded timeout")
         except Exception as e:
             keepalive_task.cancel()
             logger.error(f"{status_key} operation failed: {e}")
-            logger.error(f"🧵 [{status_key}] Active threads at error: {threading.active_count()}")
             raise
     
     async def assist(self, session: Session, query: Query, response_handler: ResponseHandler):
@@ -120,7 +113,7 @@ class SmartGTMAgent(AbstractAgent):
         """
         # Create a fresh executor for this request to prevent thread leaks
         request_executor = ThreadPoolExecutor(
-            max_workers=3,  # Increased to 3 for crawler, scraper, and LLM
+            max_workers=3,
             thread_name_prefix=f"gtm_req_{id(query)}_"
         )
         
@@ -176,7 +169,6 @@ class SmartGTMAgent(AbstractAgent):
                 return
             
             logger.info(f"✅ Parsed query - URL: {company_url}, Type: {feature}, {rate_msg}")
-            logger.info(f"🧵 Initial active threads: {threading.active_count()}")
             
             # Check cache
             cached_result = cache_manager.get(company_url, feature)
@@ -334,7 +326,6 @@ class SmartGTMAgent(AbstractAgent):
             
             await response_handler.complete()
             logger.info(f"✅ Analysis completed for {company_url}")
-            logger.info(f"🧵 Final active threads: {threading.active_count()}")
             
         except Exception as e:
             logger.error(f"Error in assist method: {e}", exc_info=True)
@@ -348,9 +339,7 @@ class SmartGTMAgent(AbstractAgent):
         
         finally:
             # CRITICAL: Always cleanup the executor, even if errors occur
-            logger.info("🧹 Cleaning up request executor...")
             request_executor.shutdown(wait=True, cancel_futures=True)
-            logger.info(f"✅ Executor cleaned up. Final thread count: {threading.active_count()}")
     
     def cleanup(self):
         """Explicit cleanup method (executor is per-request now)"""
