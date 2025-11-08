@@ -28,7 +28,7 @@ class SmartGTMAgent(AbstractAgent):
     - Conversational: "I need go-to-market strategy for github.com"
     """
     
-    def __init__(self, name: str = "Smart GTM Agent"):
+    def __init__(self, name: str = "MarketMind AI"):
         super().__init__(name)
         
         # Don't create a shared executor - we'll create per-request executors
@@ -343,4 +343,4 @@ class SmartGTMAgent(AbstractAgent):
     
     def cleanup(self):
         """Explicit cleanup method (executor is per-request now)"""
-        logger.info("✅ SmartGTMAgent cleanup called (no global executor to clean)")
+        logger.info("✅ MarketMind AI cleanup called (no global executor to clean)")

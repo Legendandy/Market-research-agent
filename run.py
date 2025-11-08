@@ -32,13 +32,13 @@ if __name__ == "__main__":
         signal.signal(signal.SIGTERM, signal_handler)
         
         # Create agent instance
-        agent = SmartGTMAgent(name="Smart GTM Agent")
+        agent = SmartGTMAgent(name="MarketMind AI")
         
         # Create server
         server = DefaultServer(agent)
         
         # Run server
-        logger.info("🚀 Starting Smart GTM Agent server on port 8080...")
+        logger.info("🚀 Starting MarketMind AI Agent server on port 8080...")
         logger.info("💡 Press Ctrl+C to stop gracefully")
         server.run()
         
