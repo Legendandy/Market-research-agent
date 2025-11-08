@@ -9,7 +9,7 @@
 
 **AI-Powered Market Intelligence & GTM Strategy Assistant**
 
-[Features](#-features) • [Architecture](#-architecture) • [Usage](#-usage) • [API Reference](#-api-reference)
+[Features](#-features) • [Architecture](#%EF%B8%8F-architecture) • [Usage](#-usage) • [API Reference](#-api-reference)
 
 </div>
 
@@ -20,7 +20,7 @@
 - [Overview](#-overview)
 - [Features](#-features)
 - [Architecture](#%EF%B8%8F-architecture)
-- [Technology Stack](#-technology-stack-1)
+- [Technology Stack](#%EF%B8%8F-technology-stack)
 - [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
